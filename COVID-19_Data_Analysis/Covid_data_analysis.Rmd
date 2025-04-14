@@ -1,0 +1,379 @@
+---
+title: "Covid-19 Historical Time-Series US Data Analysis"
+author: "Jayjit Pradhan"
+date: "2025-04-09"
+output: 
+  html_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+## Project Purpose
+
+The purpose of this project is to analyze Covid-19 Time-Series US dataset from the John Hopkins GitHub site, a historical time-series data of covid-19 cases and deaths of all US counties, using R.
+
+## Objective
+
+Main objective of this project is:
+
+- Which US states are most affected by Covid-19?
+- Can we predict future Covid-19 cases and deaths in US with a Linear Regression Model?
+  
+
+## Load packages
+```{r load packages, warning=FALSE, message=FALSE}
+library('tidyverse')
+library('lubridate')
+library('ggplot2')
+library('dplyr')
+```
+
+## Data Description
+
+__CSSE COVID19 Time Series Data__
+
+This folder contains daily time series summary tables, including confirmed, deaths and recovered. All data is read in from the daily case report. The time series tables are subject to be updated if inaccuracies are identified in our historical data.
+
+Two time series tables are for the US confirmed cases and deaths, reported at the county level. They are named time_series_covid19_confirmed_US.csv, time_series_covid19_deaths_US.csv, respectively. These datasets have been used for this analysis.
+
+Three time series tables are for the global confirmed cases, recovered cases and deaths. Australia, Canada and China are reported at the province/state level. Dependencies of the Netherlands, the UK, France and Denmark are listed under the province/state level. The US and other countries are at the country level. The tables are renamed time_series_covid19_confirmed_global.csv and time_series_covid19_deaths_global.csv, and time_series_covid19_recovered_global.csv, respectively.
+
+Update frequency: Once a day around 23:59 (UTC).
+
+__Link__: https://github.com/CSSEGISandData/COVID-19/tree/master/csse_covid_19_data/csse_covid_19_time_series
+
+
+## Data Load
+
+```{r setup_urls, message=FALSE, warnings=FALSE}
+# All files begin with this string.
+url_in <- ("https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/csse_covid_19_time_series/")
+
+# Vector containing four file names.
+file_names <- 
+  c("time_series_covid19_confirmed_US.csv",
+  "time_series_covid19_deaths_US.csv")
+
+# String concatenate url_in and each of the file names.
+urls <- str_c(url_in, file_names)
+```
+
+```{r import_data, message=FALSE, warnings=FALSE}
+# Store each dataset in a variable.
+US_cases <- read_csv(urls[1])
+US_deaths <- read_csv(urls[2])
+```
+
+## Tidy and Transform Data
+
+- Move date to a separate row and converted into date objects.
+- Remove unnecessary columns (Lat, Long_).
+
+
+```{r tidy_US_cases}
+US_cases <- US_cases %>%
+  pivot_longer(cols = -(UID:Combined_Key),
+               names_to = "date",
+               values_to = "cases")  %>%
+  select(Admin2:cases) %>%
+  mutate(date = mdy(date)) %>%
+  select (-c(Lat, Long_))
+```
+
+```{r tidy_US_deaths}
+US_deaths <- US_deaths %>%
+  pivot_longer(cols = -(UID:Population),
+               names_to = "date",
+               values_to = "deaths")  %>%
+  select(Admin2:deaths) %>%
+  mutate(date = mdy(date)) %>%
+  select (-c(Lat, Long_))
+```
+
+- Join US cases and US deaths per date.
+
+```{r join_US_data}
+US <- US_cases %>%
+  full_join(US_deaths)
+```
+
+- glimpse of the data.
+
+```{r glipmse}
+glimpse(US)
+```
+
+### Summary of US Data (Descriptive Statistics)
+
+```{r US_summary}
+summary(US)
+```
+
+### Row Description (US Data)
+
+- Each __row__ in the US table is a date.
+
+
+### Column Description (US Data)
+
+- __Admin2__: County name
+- __Province_State__: State name
+- __Country_Region__: US
+- __Combined_Key__: Puts together county and state
+- __date__: Date in year/month/day format
+- __cases__: Total number of COVID19 cases
+- __Population__: Population of the County
+- __deaths__: Total number of COVID19 related deaths
+
+
+## Visualizations and Analysis
+
+- For the analysis, related data frames have been created with data group by Province_State.
+- New columns new_cases and new_deaths have been created to calculate daily changes.
+
+```{r states_deatil_data}
+
+# Group data by Province_State & date and add mortality rate column.
+states_detail_data <- US %>%
+  group_by(Province_State,date) %>%
+  summarize(cases = sum(cases), deaths = sum(deaths), 
+            Population= sum(Population), .groups = 'drop') %>%
+  mutate(new_cases = cases - lag(cases), 
+         new_deaths = deaths - lag(deaths)) %>%
+  mutate(new_deaths = if_else(is.na(new_deaths),0,new_deaths),
+         new_cases = if_else(is.na(new_cases),0,new_cases)) %>%
+  select(Province_State,date, cases, deaths, Population, new_cases, new_deaths) %>%
+  ungroup()
+```
+
+- US total cases and deaths data frame also have been created.
+- New columns mortality_rate, new_cases and new_deaths have been created
+
+```{r us_totals_data}
+
+# Sum all cases, deaths, and populations.
+us_totals <- states_detail_data %>%
+  group_by(date) %>%
+  summarize(cases = sum(cases), deaths = sum(deaths)) %>%
+  mutate(mortality_rate = if_else(cases==0,0,deaths/cases),
+         new_cases = cases - lag(cases), 
+         new_deaths = deaths - lag(deaths)) %>%
+  mutate(new_deaths = if_else(is.na(new_deaths),0,new_deaths),
+         new_cases = if_else(is.na(new_cases),0,new_cases)) %>%
+  select(date, cases, deaths, mortality_rate,new_cases,new_deaths) %>%
+  ungroup()
+
+```
+
+- Latest data for each States extract using max date present in the data.
+- New columns mortality_rate, cases_per_100 and deaths_per_100 have been created.
+
+```{r states_total}
+
+max_date <- max(US$date)
+
+# Group data by Province_State and add mortality rate column
+states_total <- states_detail_data %>% 
+  filter(date == max_date) %>%
+  group_by(Province_State) %>%
+  mutate(mortality_rate = if_else(cases==0,0,deaths/cases),
+         cases_per_100 = if_else(Population==0,0,cases/Population * 100),
+         deaths_per_100 = if_else(Population==0,0,deaths/Population * 100)) %>%
+  select(Province_State, cases, deaths, mortality_rate, cases_per_100, deaths_per_100, Population) %>%
+  ungroup()
+```
+
+
+- Analyze data frames to find information relevant to the question of interest.
+
+```{r analyze_states}
+
+# Total US cases to date and Max 1 day cases.
+sum(us_totals$cases)
+
+# Total US deaths to date and Max 1 day cases.
+sum(us_totals$deaths)
+
+# Max 1 day cases
+max(us_totals$new_cases)
+
+# Max 1 day deaths
+max(us_totals$new_deaths)
+
+# Avg mortality rate:
+sum(us_totals$deaths)/sum(us_totals$cases)
+
+# Maximum new cases for 1 day
+states_detail_data %>% slice_max(new_cases, n=5)
+
+# Maximum new cases for 1 day
+states_detail_data %>% slice_max(new_deaths, n=5)
+
+# Maximum mortality rate overall
+states_total %>% slice_max(mortality_rate,n=5)
+
+# Maximum cases overall
+states_total %>% slice_max(cases, n=5)
+
+# Maximum deaths overall
+states_total %>% slice_max(deaths, n=5)
+
+# Maximum cases_per_100 overall
+states_total %>% slice_max(cases_per_100, n=5)
+
+# Maximum deaths_per_100 overall
+states_total %>% slice_max(deaths_per_100, n=5)
+```
+
+**Observations:** 
+
+- Total COVID-19 cases for US is 53,813,347,993 whereas number of deaths are 713,875,231, showing an average mortality rate of 0.01326577.
+- As per new cases for a day, maximum was reported during January, 2022 with highest as 207,110 new cases. California was the most affected state followed by Florida in this regard.
+- As per new deaths for a day, maximum was reported on December, 2021. Missouri reported the highest as 2,441 deaths on 2021-12-02 followed by Tennessee with 2,115 deaths on 2021-12-22. Missouri & Tennessee was the most affected states followed by Oklahoma & Florida in this regard.
+- In terms of mortality rate, the most affected states were Grand Princess, Pennsylvania, Oklahoma, Georgia & Michigan.
+- In terms of total cases, the most affected states were California, Texas, Florida, New York & Illinois. However when checked by cases_per_100, it seems the most affected states were Rhode Island, Alaska, Kentucky, North Dakota & Guam.
+- In terms of total deaths, the most affected states were California, Texas, Florida, New York & Pennsylvania. However when checked by deaths_per_100, it seems the most affected states were Arizona, Oklahoma, Mississippi, West Virginia & New Mexico.
+
+
+### By total cases and deaths, most affected states: California, Texas, Florida & New York
+
+
+```{r top_total_cases}
+
+# Create a new dataframe for Iron County and add columns for daily new cases and deaths.
+top_total_cases <- states_detail_data %>%
+  filter(Province_State %in% c("California", "Texas", "Florida", "New York"),
+         new_cases >= 0,new_deaths >= 0)
+
+ggplot(top_total_cases, aes(x=date)) +
+  geom_line(aes(y = new_cases,color=Province_State)) +
+  scale_x_date(date_labels = "%Y %b %d", date_breaks = "8 month") +
+  theme_bw() +
+  labs(x = "Dates",
+       y = "New COVID19 Cases",
+       title = "Most affected states New COVID19 Cases - Time Series")
+
+ggplot(top_total_cases, aes(x=date)) +
+  geom_line(aes(y = new_deaths,color=Province_State)) +
+  scale_x_date(date_labels = "%Y %b %d", date_breaks = "8 month") +
+  theme_bw() +
+  labs(x = "Dates",
+       y = "New COVID19 Cases",
+       title = "Most affected states New COVID19 Deaths - Time Series")
+
+```
+
+### By cases_per_100, most affected states: Rhode Island, Alaska, Kentucky, North Dakota & Guam
+
+
+```{r top_states_cases}
+
+# Create a new dataframe for Iron County and add columns for daily new cases and deaths.
+top_states_cases <- states_detail_data %>%
+  filter(Province_State %in% c("Rhode Island","Alaska","Kentucky","North Dakota","Guam"),
+         new_cases >= 0,new_deaths >= 0)
+
+ggplot(top_states_cases, aes(x=date)) +
+  geom_line(aes(y = new_cases,color=Province_State)) +
+  scale_x_date(date_labels = "%Y %b %d", date_breaks = "8 month") +
+  theme_bw() +
+  labs(x = "Dates",
+       y = "New COVID19 Cases",
+       title = "Most affected states New COVID19 Cases - Time Series")
+
+ggplot(top_states_cases, aes(x=date)) +
+  geom_line(aes(y = new_deaths,color=Province_State)) +
+  scale_x_date(date_labels = "%Y %b %d", date_breaks = "8 month") +
+  theme_bw() +
+  labs(x = "Dates",
+       y = "New COVID19 Cases",
+       title = "Most affected states New COVID19 Deaths - Time Series")
+
+```
+
+### By deaths_per_100, most affected states: Arizona, Oklahoma, Mississippi, West Virginia & New Mexico
+
+
+```{r top_states_deaths}
+
+# Create a new dataframe for Iron County and add columns for daily new cases and deaths.
+top_states_deaths <- states_detail_data %>%
+  filter(Province_State %in% c("Arizona", "Oklahoma", "Mississippi", "West Virginia","New Mexico"),
+         new_cases >=0, new_deaths >= 0)
+
+ggplot(top_states_deaths, aes(x=date)) +
+  geom_line(aes(y = new_cases,color=Province_State)) +
+  scale_x_date(date_labels = "%Y %b %d", date_breaks = "8 month") +
+  theme_bw() +
+  labs(x = "Dates",
+       y = "New COVID19 Cases",
+       title = "Most affected states New COVID19 Cases - Time Series")
+
+ggplot(top_states_deaths, aes(x=date)) +
+  geom_line(aes(y = new_deaths,color=Province_State)) +
+  scale_x_date(date_labels = "%Y %b %d", date_breaks = "8 month") +
+  theme_bw() +
+  labs(x = "Dates",
+       y = "New COVID19 Cases",
+       title = "Most affected states New COVID19 Deaths - Time Series")
+
+```
+
+## Regression Model
+
+Logistic Regression model was used to predict future Covid-19 cases and deaths in US.
+
+__Predictive Variable:__ deaths_per_100
+
+__Dependent Variables:__ cases_per_100
+
+
+```{r states_model}
+
+# Build the linear regression model.
+lr_model <- lm(deaths_per_100 ~ cases_per_100, data = states_total)
+
+# Display summmary for model analysis.
+summary(lr_model)
+```
+
+
+__Model Observations__
+
+- Coefficients:
+
+coefficients represent the effect of the predictor variables on the response variable. The summary of coefficients is:
+
+Intercept: -0.014972 (Estimate), 0.045856 (Std. Error), -0.327 (t value), 0.745 (Pr(>|t|))
+cases_per_100: 0.010656 (Estimate), 0.001494 (Std. Error), 7.132 (t value), 2.09e-09 (Pr(>|t|))
+The significance codes indicate that __cases_per_100__ is highly significant (denoted by `***`).
+
+- R-Squared:
+
+Multiple R-squared: 0.476
+
+Adjusted R-squared: 0.4666
+
+These values indicate the proportion of the variance in the dependent variable that is predictable from the independent variable. An R-squared value of 0.476 implies that approximately 47.6% of the variability in __deaths_per_100__ can be explained by the __cases_per_100__.
+
+- F-Statistic
+
+The F-statistic is 50.86, computed on 1 and 56 degrees of freedom, with a p-value of 2.095e-09. This statistic tests whether the overall regression model is a good fit for the data. The very small p-value indicates that the model is highly significant.
+
+- In conclusion, the linear regression model shows a strong and significant correlation between the number of deaths per 100 and the number of cases per 100, with the predictor variable __cases_per_100__ having a significant positive effect on the response variable __deaths_per_100__.
+
+
+## Bias Identification
+The analysis conducted in this report is not without bias as every source of data is biased in some way. When looking at any results from this report we should consider that each state is different in many ways, including population and health policy, and so the COVID-19 virus affected each state different. 
+
+
+## Conclusion
+In terms of total cases and deaths, the most affected states were California, Texas, Florida & New York. However when checked by cases_per_100, it seems the most affected states were Rhode Island, Alaska, Kentucky, North Dakota & Guam. Whereas when checked by deaths_per_100, it seems the most affected states were Arizona, Oklahoma, Mississippi, West Virginia & New Mexico.
+
+Also, the linear regression model shows a strong and significant correlation between the number of deaths per 100 and the number of cases per 100, with the predictor variable __cases_per_100__ having a significant positive effect on the response variable __deaths_per_100__
+
+In conclusion, this project has been an informative exploration for Covid-19 data for US. Further analysis can be done on Global Covid-19 data, to further extend these observations. Also, additional fields can also be combined in the model to further improve the model and prediction accuracy.
