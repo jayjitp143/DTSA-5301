@@ -1,0 +1,218 @@
+---
+title: "NYPD Shooting Incident Data (Historic) Analysis"
+author: "Jayjit Pradhan"
+date: '2025-03-30'
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+  
+
+## Project Purpose
+
+The purpose of this project is to analyze NYPD Shooting Incident Data, a historical list of every shooting incident occurred in NYC, using R.
+
+## Objective
+
+Main objective of this project is to determine whether age and race of victims can be used to predict if a shooting was fatal.
+  
+
+## Load packages
+```{r load packages, warning=FALSE, message=FALSE}
+library('tidyverse')
+library('lubridate')
+library('ggplot2')
+```
+
+## Data Description
+
+This is a breakdown of every shooting incident that occurred in NYC going back to 2006 through the end of the previous calendar year. This data is manually extracted every quarter and reviewed by the Office of Management Analysis and Planning before being posted on the NYPD website.
+
+Link: https://catalog.data.gov/dataset/nypd-shooting-incident-data-historic
+
+## Data Load
+
+```{r import_data, message=FALSE, warnings=FALSE}
+url <- "https://data.cityofnewyork.us/api/views/833y-fsy8/rows.csv?accessType=DOWNLOAD"
+nypd_shootings <- read_csv(url)
+glimpse(nypd_shootings) # Glimpse prints every column in a data frame.
+```
+
+## Tidy and Transform Data
+
+### Remove Unnecessary Columns
+
+Removing columns not required for this project: INCIDENT_KEY, BORO, LOC_OF_OCCUR_DESC, PRECINCT, JURISDICTION_CODE, LOC_CLASSFCTN_DESC, LOCATION_DESC, PERP_AGE_GROUP, PERP_SEX, PERP_RACE, VIC_SEX, X_COORD_CD, Y_COORD_CD, Latitude, Longitude, Lon_Lat.
+
+```{r remove_columns}
+nypd_shootings <- nypd_shootings %>% select(-c(
+                      INCIDENT_KEY,
+                      BORO,
+                      LOC_OF_OCCUR_DESC,
+                      PRECINCT,
+                      JURISDICTION_CODE,
+                      LOC_CLASSFCTN_DESC,
+                      LOCATION_DESC,
+                      PERP_AGE_GROUP,
+                      PERP_SEX,
+                      PERP_RACE,
+                      VIC_SEX,
+                      X_COORD_CD,
+                      Y_COORD_CD,
+                      Latitude,
+                      Longitude,
+                      Lon_Lat
+                      ))
+glimpse(nypd_shootings)
+```
+### Convert Data Types and create new column
+
+1. Convert OCCUR_DATE to __date object__.
+2. Create OCCUR_DATE_TIME column by merging OCCUR_DATE & OCCUR_TIME columns.
+3. Drop OCCUR_DATE & OCCUR_TIME columns.
+
+```{r convert_date}
+nypd_shootings <- nypd_shootings %>%
+  mutate(OCCUR_DATE = mdy(OCCUR_DATE),
+         OCCUR_DATE_TIME = paste(OCCUR_DATE, OCCUR_TIME))
+
+nypd_shootings <- nypd_shootings %>% select(-c(
+                      OCCUR_DATE,
+                      OCCUR_TIME
+                      ))
+glimpse(nypd_shootings)
+```
+### Missing Data
+
+```{r check_missing}
+# Identify columns with missing data and display the number of missing values per column.
+colSums(is.na(nypd_shootings))
+```
+**Observation:** No data is missing for required columns.
+
+## Data Summary
+```{r data summary}
+summary(nypd_shootings)
+```
+## Visualizations and Analysis
+
+### Fatal Shootings
+
+The variable __STATISTICAL_MURDER_FLAG__ indicates whether a shooting was non-fatal __FALSE__ or fatal __TRUE__. 
+
+```{r bar_fatal_flag}
+table(nypd_shootings$STATISTICAL_MURDER_FLAG)
+
+nypd_shootings %>%
+  ggplot(aes(x = STATISTICAL_MURDER_FLAG)) +
+  geom_bar(fill = "#228B22")+
+  theme_bw()+
+  labs(x = "Murder Flag",
+       y = "Shooting Incidents",
+       title = "Shootings by Murder Flag")
+```
+
+
+**Observation:** Data contains 23,036 non-fatal shootings and 5,526 fatal shootings.
+
+
+### Victim Age
+
+Below tables show counts of shootings in each age group and also categories by non-fatal and fatal.
+
+
+```{r bar_victim_age}
+table(nypd_shootings$VIC_AGE_GROUP)
+
+table(nypd_shootings$STATISTICAL_MURDER_FLAG, nypd_shootings$VIC_AGE_GROUP)
+
+nypd_shootings %>%
+  filter(STATISTICAL_MURDER_FLAG == FALSE) %>%
+  ggplot(aes(x = VIC_AGE_GROUP)) +
+  geom_bar(fill = "#0000CD")+
+  theme_bw()+
+  labs(x = "Victim Age Group",
+       y = "Non-Fatal Shooting Incidents",
+       title = "Non-Fatal Shootings by Victim Age Group")
+
+nypd_shootings %>%
+  filter(STATISTICAL_MURDER_FLAG == TRUE) %>%
+  ggplot(aes(x = VIC_AGE_GROUP)) +
+  geom_bar(fill = "#0000CD")+
+  theme_bw()+
+  labs(x = "Victim Age Group",
+       y = "Fatal Shooting Incidents",
+       title = "Fatal Shootings by Victim Age Group")
+```
+
+**Observation:** 
+1. Majority of victims of both fatal and non-fatal shootings are in the 18-24 and 25-44 age groups. 
+2. From the bar charts, it is evident that Age groups can be an important factor in determining fatal and non-fatal shootings.
+
+### Victim Race
+
+Below tables show counts of shootings in each race and also categories by non-fatal and fatal.
+
+
+```{r bar_victim_race}
+table(nypd_shootings$VIC_RACE)
+
+table(nypd_shootings$STATISTICAL_MURDER_FLAG, nypd_shootings$VIC_RACE)
+
+nypd_shootings %>%
+  filter(STATISTICAL_MURDER_FLAG == FALSE) %>%
+  ggplot(aes(x = VIC_RACE)) +
+  geom_bar(fill = "#800080")+
+  coord_flip()+
+  theme_bw()+
+  labs(x = "Victim Race",
+       y = "Non-Fatal Shooting Incidents",
+       title = "Non-Fatal Shootings by Victim Race")
+
+nypd_shootings %>%
+  filter(STATISTICAL_MURDER_FLAG == TRUE) %>%
+  ggplot(aes(x = VIC_RACE)) +
+  geom_bar(fill = "#800080")+
+  coord_flip()+
+  theme_bw()+
+  labs(x = "Victim Race",
+       y = "Fatal Shooting Incidents",
+       title = "Fatal Shootings by Victim Race")
+```
+
+**Observation:** 
+1. Majority of victims of both fatal and non-fatal shootings are Black, followed by Hispanics.
+2. From the bar charts, it is evident that Victim Race can be an important factor in determining fatal and non-fatal shootings.
+
+
+## Regression Model
+
+Logistic Regression model was used to determine whether victim's age and race can be used to predict if a shooting is fatal.
+
+__Predictive Variable:__ STATISTICAL_MURDER_FLAG
+
+__Dependent Variables:__ VIC_AGE_GROUP, VIC_RACE
+
+
+```{r logistic_model}
+logistic_model <- glm(STATISTICAL_MURDER_FLAG ~ VIC_AGE_GROUP + VIC_RACE, data = nypd_shootings, family = 'binomial')
+summary(logistic_model)
+```
+
+
+**Observations:** Looking at the model, it is evident that victim is likely to survive a shooting if they are in the __< 18__ and __18-24__ age groups. Chances of survival is reduced with each subsequent age group. Most shootings in the __65+__ age group appear to be __fatal__.
+Also, from the model, it seems that victim race might be not that determinant factor to predict the survival of victims.
+
+
+## Bias Identification
+As I started working on this data, my own bias directed me to analyse victim's age_group and race fields and it might be helpful in determining the fatality of the shootings. Although, victim's age group came out as an important factor in determining the fatality of shooting but victims race was not that determinant. 
+
+Additionally, there might be some bias in the data itself. NYPD is not themselves unbiased and may have some incentive to favorable outcomes.These are only reported shootings and may not depict a population wide representation. Some factors might also need to be included like who reports a shooting, police presence in these neighborhoods, etc.
+
+
+## Conclusion
+This project has been an informative exploration for NYPD Shootings data. Further analysis with different fields needs to be done to determine what are the most important factors for predicting the fatality of a shooting incident. Also, additional data can also be combined to further improve the model and prediction accuracy.
